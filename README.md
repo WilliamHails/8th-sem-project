@@ -1,103 +1,437 @@
 # Face Recognition Attendance System
 
-A modern, real-time, privacy-first face recognition attendance system with offline kiosk support, manual resolution. Designed for universities and colleges.
+A modern, intelligent face recognition-based attendance system designed for universities and colleges. Enables seamless, privacy-first automated attendance marking with role-based access control and comprehensive administrative features.
 
 ---
 
-## Features
+## 📋 Project Overview
 
-- **Four roles**: Admin · Faculty · Student · Kiosk
-- Polling-bases attendance
-- Offline-capable kiosk 
-- Edge or server-side embedding computation
-- Automatic raw image purging (privacy compliant)
-- CSV export & full audit trail
-- Minimal liveness check (prevents photo spoofing)
-- Role-based access with JWT
+The **Face Recognition Attendance System** automates attendance tracking using AI-powered face recognition. It replaces traditional manual roll calls with real-time, intelligent detection while maintaining privacy and security standards.
 
----
-
-## High-Level Architecture
-
-┌─────────────────────────────────────┐
-│ Frontend (React PWA) │
-│ Admin │ Faculty │ Student │ Kiosk │
-└───────────────↑↓────────────────────┘
-│ REST + WebSocket
-┌───────────────▼────────────────────┐
-│ Backend (FastAPI - Python) │
-└───────────────↑↓────────────────────┘
-┌───────────────▼────────────────────┐
-│ PostgreSQL + Local/S3 File Store │
-└───────────────↑↓────────────────────┘
-│ ML Inference
-┌───────────────▼────────────────────┐
-│ InsightFace / ArcFace / FaceNet │
-└────────────────────────────────────┘
+### Key Highlights:
+- **Four-role system**: Admin, Faculty, Student, and Kiosk (anonymous)
+- **AI-powered face recognition** using InsightFace embeddings
+- **Role-based access control** with JWT authentication
+- **Progressive Web App** for mobile and desktop access
+- **Privacy-first design** with automatic image purging
+- **Comprehensive audit trail** with CSV export capabilities
+- **Real-time updates** using REST APIs
+- **Multi-camera support** for kiosk mode
 
 ---
 
-## Frontend (React PWA)
+## 🛠️ Tech Stack Overview
 
-Progressive Web App with role-based routing and offline kiosk support.
+### Frontend
+- **React 19** - UI framework with hooks
+- **TypeScript** - Type-safe JavaScript
+- **Vite 6** - Fast build tool and dev server
+- **Lucide React** - Icon library
+- **Recharts** - Data visualization
+- **Axios** - HTTP client
 
-### Admin Panel
-- Student management (CRUD): enrollment_no, name, semester, email
-- Subject management & bulk student assignment
-- Enrollment image upload:
-  - Multi-file upload
-  - Webcam capture (auto-capture N frames or manual)
-- **Train/Index** button → recompute embeddings & canonical vectors
-- Model version + training timestamp display
-- Export attendance CSV (date, subject filters)
-- View prediction logs & unresolved entries
+### Backend
+- **FastAPI** (Python) - Modern async web framework
+- **SQLAlchemy** - ORM for database operations
+- **PostgreSQL** - Relational database
+- **Uvicorn** - ASGI server
+- **Pydantic** - Data validation
+- **InsightFace** - Face recognition & embedding
+
+### DevOps & Tools
+- **JWT** - Token-based authentication
+- **Passlib + bcrypt** - Password hashing
+- **python-jose** - JWT handling
+- **Pillow** - Image processing
+- **OpenCV** - Computer vision
+- **ONNX Runtime** - Model inference
+
+---
+
+## 📦 Prerequisites
+
+Before starting, install the following:
+
+| Software | Version | Download |
+|----------|---------|----------|
+| **Python** | 3.10+ | [python.org](https://www.python.org/downloads/) |
+| **Node.js** | 18+ | [nodejs.org](https://nodejs.org/) |
+| **PostgreSQL** | 12+ | [postgresql.org](https://www.postgresql.org/download/) |
+| **Git** | Latest | [git-scm.com](https://git-scm.com/) (optional) |
+
+Verify installations:
+```bash
+python --version
+node --version
+npm --version
+psql --version
+```
+
+---
+
+## 🚀 Step-by-Step Setup & Run Instructions
+
+### Step 1: Database Setup
+
+1. **Start PostgreSQL Service**:
+   - **Windows**: Starts automatically during installation
+   - **Linux**: `sudo systemctl start postgresql`
+   - **Mac**: `brew services start postgresql`
+
+2. **Create the Database**:
+   ```bash
+   psql -U postgres -c "CREATE DATABASE attendance_db;"
+   ```
+   - If prompted for password, enter your PostgreSQL admin password
+
+3. **Verify Connection**:
+   ```bash
+   psql -U postgres -d attendance_db -c "SELECT version();"
+   ```
+
+---
+
+### Step 2: Backend Setup
+
+1. **Navigate to Project Root**:
+   ```bash
+   cd "path/to/Face-Recognition-Attendance-System"
+   ```
+
+2. **Install Python Dependencies**:
+   ```bash
+   pip install -r backend/requirements.txt
+   ```
+   
+   This installs:
+   - FastAPI & Uvicorn
+   - SQLAlchemy & psycopg2
+   - InsightFace & ONNX Runtime
+   - Pydantic & JWT libraries
+
+3. **Create `.env` File** (Optional - for custom configuration):
+   
+   Create `backend/.env`:
+   ```env
+   DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/attendance_db
+   JWT_SECRET=your-secret-key-change-this
+   JWT_ALGORITHM=HS256
+   ACCESS_TOKEN_EXPIRE_MINUTES=60
+   MATCH_SIMILARITY_THRESHOLD=0.65
+   MIN_SAMPLES_PER_STUDENT=8
+   ```
+   
+   - Replace `YOUR_PASSWORD` with your PostgreSQL password
+   - If no custom `.env`, default values will be used
+
+4. **Start Backend Server**:
+   ```bash
+   uvicorn backend.main:app --reload
+   ```
+   
+   ✅ **Backend is running on**: `http://localhost:8000`
+   - API Documentation: `http://localhost:8000/docs` (Swagger UI)
+   - ReDoc: `http://localhost:8000/redoc`
+
+---
+
+### Step 3: Frontend Setup
+
+1. **Open New Terminal** (keep backend running):
+   ```bash
+   cd "path/to/Face-Recognition-Attendance-System"
+   ```
+
+2. **Install Node Dependencies**:
+   ```bash
+   npm install
+   ```
+
+3. **Start Frontend Dev Server**:
+   ```bash
+   npm run dev
+   ```
+   
+   ✅ **Frontend is running on**: `http://localhost:3000`
+
+---
+
+### Step 4: Create Admin Account & Login
+
+1. **Open Browser** and navigate to: `http://localhost:3000`
+
+2. **Create First Admin Account**:
+   - You'll see a "No Users Found" message with a button "Create Admin Account"
+   - Click the button and fill in:
+     - **Full Name**: Your name
+     - **Email**: admin@example.com
+     - **Password**: admin123 (or your preferred password)
+   - Click **"Create Admin"**
+
+3. **Login** with your newly created credentials
+
+4. **Success!** You're now logged into the Admin Dashboard
+
+---
+
+## 📱 Using the Application
+
+### Admin Console
+
+#### 1. **Train Model Tab**
+   - Select a student from the dropdown
+   - Upload face images (PNG/JPG, max 5MB each)
+   - Click "Start Training" to process face embeddings
+   - System learns student's face patterns for recognition
+
+#### 2. **Manage Users Tab**
+   - Add new **Students**, **Faculty**, or **Admin** users
+   - Edit user details (name, email, enrollment number, semester)
+   - Assign subjects to students
+   - Manage user roles and permissions
+
+#### 3. **Manage Subjects Tab**
+   - Create new subjects/courses with codes (e.g., CS101, MATH201)
+   - Edit subject information
+   - Delete courses
+   - Bulk assign students to subjects
 
 ### Faculty Dashboard
-- Start/Stop attendance window (set duration)
-- Live attendance feed (WebSocket)
-- Unresolved queue with:
-  - Thumbnail preview
-  - Top 3 nearest candidates
-  - Actions: Manual Mark · Reject
-- Attendance reports & CSV export per subject/date range
+- Start class sessions for assigned subjects
+- View live attendance in real-time
+- Monitor attendance statistics
+- Export attendance records as CSV
+- Manual attendance adjustment options
 
-### Student Portal
+### Student Dashboard
 - View enrolled subjects
-- Attendance percentage & detailed history
-- Simple profile page
+- Check personal attendance percentage
+- View detailed attendance history
+- Download attendance records
 
-### Kiosk Mode (Offline-First)
-- Fullscreen, auto-start ready
-- "No active session" screen when idle
-- Active session:
-  - Live webcam preview
-  - Continuous detection & recognition
-  - Instant visual feedback:
-    - ✔ Matched (green)
-    - ✖ Unknown (red)
-    - ✖ No face / Multiple faces
-    - ✖ Low confidence
-- Local queue (IndexedDB) when offline → auto-sync on reconnect
-- Configurable classroom/location ID
+### Kiosk Mode ("Give Attendance")
+- **Anonymous attendance marking** - No login required
+- Uses face recognition to automatically identify students
+- Real-time feedback with visual confirmation
+- No internet required (offline-capable)
+- Live webcam feed with detection status
 
 ---
 
-## Backend (FastAPI - Python)
+## 📂 Project Structure
 
-### Core Features
-- REST API + WebSocket for real-time updates
-- Minimal auth for Admin/Faculty (username/password)
-- JWT protection for sensitive endpoints
-- Rate limiting on recognition & OTP routes
-- HTTPS/TLS enforced
+```
+Face-Recognition-Attendance-System/
+│
+├── backend/                           # FastAPI Backend
+│   ├── main.py                       # Application entry point
+│   ├── models.py                     # SQLAlchemy database models
+│   ├── schemas.py                    # Pydantic request/response schemas
+│   ├── auth.py                       # Authentication & password hashing
+│   ├── config.py                     # Configuration & environment variables
+│   ├── db.py                         # Database connection & initialization
+│   ├── deps.py                       # Dependency injection
+│   ├── face_service.py               # Face detection & embedding logic
+│   ├── requirements.txt              # Python dependencies
+│   └── routers/                      # API endpoints
+│       ├── auth.py                   # Login & authentication endpoints
+│       ├── admin.py                  # Admin operations (users, subjects)
+│       ├── subjects.py               # Subject management
+│       ├── sessions.py               # Class session management
+│       ├── kiosk.py                  # Attendance marking endpoints
+│       └── attendance.py             # Attendance records & export
+│
+├── src/                              # Frontend Source Code
+│   ├── pages/                        # Page components
+│   │   ├── Home.tsx                  # Login & landing page
+│   │   ├── AdminDashboard.tsx        # Admin console
+│   │   ├── FacultyDashboard.tsx      # Faculty functions
+│   │   ├── StudentDashboard.tsx      # Student portal
+│   │   └── Kiosk.tsx                 # Kiosk mode
+│   │
+│   ├── components/                   # Reusable components
+│   │   ├── ManageUsersTab.tsx        # User management UI
+│   │   ├── SubjectsTab.tsx           # Subject management UI
+│   │   ├── TrainModelTab.tsx         # Face training UI
+│   │   ├── MultiCamCapture.tsx       # Camera capture component
+│   │   ├── WebcamCapture.tsx         # Webcam feed
+│   │   └── Navbar.tsx                # Navigation bar
+│   │
+│   ├── context/                      # React Context (State Management)
+│   │   └── AppContext.tsx            # Global app state & API calls
+│   │
+│   ├── App.tsx                       # Main app component
+│   ├── index.tsx                     # React entry point
+│   ├── apiClient.ts                  # Axios HTTP client
+│   ├── types.ts                      # TypeScript type definitions
+│   ├── constants.ts                  # Mock data & constants
+│   └── index.html                    # HTML template
+│
+├── package.json                      # Node.js dependencies & scripts
+├── tsconfig.json                     # TypeScript configuration
+├── vite.config.ts                    # Vite configuration
+├── README.md                         # This file
+└── storage/                          # Local storage directory
+    ├── raw/                          # Original uploaded images
+    ├── crops/                        # Cropped face images
+    ├── probes/                       # Test images during recognition
+    └── models/                       # Pre-trained face models
+```
 
 ---
 
-## Key Endpoints
+## 🔧 Key Commands
 
-| Method | Endpoint                | Description |
-|--------|-------------------------|-------------|
-| POST   | `/students`             | Create student |
+### Backend Commands
+```bash
+# Navigate to project root
+cd "path/to/Face-Recognition-Attendance-System"
+
+# Install dependencies
+pip install -r backend/requirements.txt
+
+# Run backend server (with hot reload)
+uvicorn backend.main:app --reload
+
+# Run backend on specific port
+uvicorn backend.main:app --reload --port 8001
+```
+
+### Frontend Commands
+```bash
+# Navigate to project root
+cd "path/to/Face-Recognition-Attendance-System"
+
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+
+# Build for production
+npm run build
+
+# Preview production build
+npm run preview
+```
+
+### Database Commands
+```bash
+# Connect to database
+psql -U postgres -d attendance_db
+
+# Create database
+psql -U postgres -c "CREATE DATABASE attendance_db;"
+
+# Drop database (caution!)
+psql -U postgres -c "DROP DATABASE attendance_db;"
+
+# List all databases
+psql -U postgres -l
+```
+
+---
+
+## 🔐 Default Credentials (After First Admin Creation)
+
+| Role   | Email          | Password |
+|--------|----------------|----------|
+| Admin  | admin@test.com | admin123 |
+
+**Note**: Credentials are automatically created when you first access the application.
+
+---
+
+## 🐛 Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| **Port 8000 already in use** | Kill process: `netstat -ano \| findstr :8000` (Windows) or `lsof -i :8000` (Mac/Linux), then kill and retry |
+| **Port 3000 already in use** | Run on different port: `npm run dev -- --port 3001` |
+| **PostgreSQL connection failed** | Verify PostgreSQL is running and password is correct in `.env` |
+| **Module not found (Python)** | Reinstall dependencies: `pip install --upgrade -r backend/requirements.txt` |
+| **npm install fails** | Clear cache: `npm cache clean --force`, delete `node_modules` and retry |
+| **CORS errors in browser** | Ensure backend is running on `localhost:8000` before making requests |
+| **Face recognition not working** | Ensure face images are uploaded via "Train Model" tab before testing kiosk |
+| **Cannot create admin account** | Verify backend is running and PostgreSQL database exists |
+
+---
+
+## 🎯 Quick Start Checklist
+
+- [ ] PostgreSQL installed and running
+- [ ] Database `attendance_db` created
+- [ ] Python 3.10+ installed
+- [ ] Node.js 18+ installed
+- [ ] Backend dependencies installed: `pip install -r backend/requirements.txt`
+- [ ] Frontend dependencies installed: `npm install`
+- [ ] Backend running: `uvicorn backend.main:app --reload` (Terminal 1)
+- [ ] Frontend running: `npm run dev` (Terminal 2)
+- [ ] Browser open: `http://localhost:3000`
+- [ ] Admin account created
+- [ ] Successfully logged in ✅
+
+---
+
+## 📝 Features & Capabilities
+
+✅ **Authentication**
+  - JWT-based login system
+  - Role-based access control (RBAC)
+  - Secure password hashing
+
+✅ **User Management**
+  - Create/edit/delete users
+  - Support for multiple roles (Admin, Faculty, Student)
+  - Subject enrollment management
+
+✅ **Face Recognition**
+  - Real-time face detection
+  - Face embedding generation
+  - Similarity-based matching
+  - Multi-face handling
+
+✅ **Attendance System**
+  - Automated marking via kiosk
+  - Manual mark/reject options
+  - CSV export functionality
+  - Attendance history tracking
+
+✅ **Admin Console**
+  - User management interface
+  - Subject/course management
+  - Face training tool
+  - System configuration
+
+---
+
+## 📚 Additional Resources
+
+- **FastAPI Documentation**: https://fastapi.tiangolo.com/
+- **React Documentation**: https://react.dev/
+- **PostgreSQL Documentation**: https://www.postgresql.org/docs/
+- **InsightFace GitHub**: https://github.com/deepinsight/insightface
+- **Vite Documentation**: https://vitejs.dev/
+
+---
+
+## 💡 Tips for First-Time Users
+
+1. **Start Simple**: Create one student, add face images, then test kiosk
+2. **Use Test Data**: The system comes with demo credentials for quick testing
+3. **Read Logs**: Check terminal output for detailed error messages
+4. **Check API Docs**: Visit `http://localhost:8000/docs` to explore all endpoints
+5. **Learn Step-by-Step**: Master admin console before testing kiosk
+
+---
+
+## ✨ We're All Set!
+
+You now have everything needed to run the Face Recognition Attendance System independently. Follow the setup steps, and you'll have a fully functional attendance system in minutes!
+
+For questions or issues, refer to the troubleshooting section or check the source code comments.
+
+**Happy Coding! 🚀**
 | GET    | `/students/{id}`        | Get student details |
 | POST   | `/students/{id}/images` | Upload enrollment images (multipart) |
 | POST   | `/admin/train`          | Recompute embeddings & canonical vectors |

@@ -40,6 +40,7 @@ interface AppContextType {
 	getActiveSession: (facultyId?: string) => ClassSession | undefined;
 	addUser: (user: Omit<User, "id" | "avatar">) => void;
 	addSubject: (subject: Omit<Subject, "id">) => void;
+	createAdmin: (email: string, password: string, fullName: string) => Promise<boolean>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -49,8 +50,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
 }) => {
 	const [currentUser, setCurrentUser] = useState<User | null>(null);
 	const [authLoading, setAuthLoading] = useState(true);
-	const [users, setUsers] = useState<User[]>(MOCK_USERS);
-	const [subjects, setSubjects] = useState<Subject[]>(MOCK_SUBJECTS);
+	const [users, setUsers] = useState<User[]>([]);
+	const [subjects, setSubjects] = useState<Subject[]>([]);
 	const [sessions, setSessions] = useState<ClassSession[]>([]);
 	const [attendanceRecords, setAttendanceRecords] = useState<
 		AttendanceRecord[]
@@ -342,6 +343,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
 		}
 	};
 
+	const createAdmin = async (
+		email: string,
+		password: string,
+		fullName: string
+	): Promise<boolean> => {
+		try {
+			const payload = {
+				email,
+				password,
+				full_name: fullName,
+				role: UserRole.ADMIN,
+			};
+
+			const res = await api.post("/api/admin/users", payload);
+			if (res.data) {
+				await fetchAllUsers();
+				return true;
+			}
+			return false;
+		} catch (err) {
+			console.error("createAdmin failed", err);
+			return false;
+		}
+	};
+
 	// ---------- FACULTY ----------
 	const startSession = async (
 		subjectIdOrCode: string,
@@ -484,6 +510,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
 				markAttendanceMultiCam,
 				addUser,
 				addSubject,
+				createAdmin,
 			}}
 		>
 			{children}

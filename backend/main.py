@@ -13,7 +13,7 @@ from .db import init_db
 
 from .routers.auth import router as auth_router
 from .routers.admin import router as admin_router
-# from .routers.subjects import router as subjects_router
+from .routers.subjects import router as subjects_router
 from .routers.sessions import router as sessions_router
 from .routers.kiosk import router as kiosk_router
 from .routers.attendance import router as attendance_router
@@ -48,6 +48,10 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(subjects_router)
+app.include_router(sessions_router)
+app.include_router(kiosk_router)
+app.include_router(attendance_router)
 app.include_router(sessions_router)
 app.include_router(kiosk_router)
 app.include_router(attendance_router)
