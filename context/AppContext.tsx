@@ -41,6 +41,11 @@ interface AppContextType {
 	addUser: (user: Omit<User, "id" | "avatar">) => void;
 	addSubject: (subject: Omit<Subject, "id">) => void;
 	createAdmin: (email: string, password: string, fullName: string) => Promise<boolean>;
+	updateUser: (userId: string, updates: any) => Promise<void>;
+	updateSubject: (subjectId: string, updates: any) => Promise<void>;
+	deleteUser: (userId: string) => Promise<void>;
+	deleteSubject: (subjectId: string) => Promise<void>;
+	deleteEmbeddings: (userId: string) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -290,7 +295,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
 
 			const res = await api.post("/api/admin/train-face", fd, {
 				headers: { "Content-Type": "multipart/form-data" },
+				timeout: 600000, // 10 minutes for face embedding processing
 			});
+
+			console.log("Train model response:", res.data);
 
 			// find student by enrollmentNo
 			const student = users.find((u) => u.enrollmentNo === enrollmentNo);
@@ -365,6 +373,76 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
 		} catch (err) {
 			console.error("createAdmin failed", err);
 			return false;
+		}
+	};
+
+	// ---------- UPDATE FUNCTIONS ----------
+	const updateUser = async (userId: string, updates: any) => {
+		try {
+			const fd = new FormData();
+			if (updates.full_name) fd.append("full_name", updates.full_name);
+			if (updates.email) fd.append("email", updates.email);
+			if (updates.password) fd.append("password", updates.password);
+			if (updates.role) fd.append("role", updates.role);
+			if (updates.enrollment_no !== undefined) fd.append("enrollment_no", updates.enrollment_no);
+			if (updates.semester !== undefined) fd.append("semester", updates.semester.toString());
+
+			await api.put(`/api/admin/users/${userId}`, fd, {
+				headers: { "Content-Type": "multipart/form-data" },
+			});
+
+			await fetchAllUsers();
+		} catch (err) {
+			console.error("updateUser failed", err);
+			throw err;
+		}
+	};
+
+	const updateSubject = async (subjectId: string, updates: any) => {
+		try {
+			const fd = new FormData();
+			if (updates.name) fd.append("name", updates.name);
+			if (updates.code) fd.append("code", updates.code);
+
+			await api.put(`/api/admin/subjects/${subjectId}`, fd, {
+				headers: { "Content-Type": "multipart/form-data" },
+			});
+
+			await fetchAllSubjects();
+		} catch (err) {
+			console.error("updateSubject failed", err);
+			throw err;
+		}
+	};
+
+	// ---------- DELETE FUNCTIONS ----------
+	const deleteUser = async (userId: string) => {
+		try {
+			await api.delete(`/api/admin/users/${userId}`);
+			await fetchAllUsers();
+		} catch (err) {
+			console.error("deleteUser failed", err);
+			throw err;
+		}
+	};
+
+	const deleteSubject = async (subjectId: string) => {
+		try {
+			await api.delete(`/api/admin/subjects/${subjectId}`);
+			await fetchAllSubjects();
+		} catch (err) {
+			console.error("deleteSubject failed", err);
+			throw err;
+		}
+	};
+
+	const deleteEmbeddings = async (userId: string) => {
+		try {
+			await api.delete(`/api/admin/face-embeddings/${userId}`);
+			await fetchAllUsers(); // refresh to update face_image_count
+		} catch (err) {
+			console.error("deleteEmbeddings failed", err);
+			throw err;
 		}
 	};
 
@@ -511,6 +589,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
 				addUser,
 				addSubject,
 				createAdmin,
+				updateUser,
+				updateSubject,
+				deleteUser,
+				deleteSubject,
+				deleteEmbeddings,
 			}}
 		>
 			{children}

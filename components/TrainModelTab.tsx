@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Upload, CheckCircle, Database, Loader2 } from "lucide-react";
+import { Upload, CheckCircle, Database, Loader2, Trash2 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { UserRole } from "../types";
 
 export const TrainModelTab: React.FC = () => {
   // ⬇️ NOTE: we no longer use faceDatabase here
-  const { users, trainModel } = useApp();
+  const { users, trainModel, deleteEmbeddings } = useApp();
 
   const students = users.filter((u) => u.role === UserRole.STUDENT);
 
@@ -14,6 +14,8 @@ export const TrainModelTab: React.FC = () => {
   const [isTraining, setIsTraining] = useState(false);
   const [trainMessage, setTrainMessage] = useState("");
   const [progress, setProgress] = useState(0);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // --- simple estimate: ~2 seconds per image
   const estimatedSeconds = useMemo(() => {
@@ -51,6 +53,22 @@ export const TrainModelTab: React.FC = () => {
           setProgress(0);
         }, 3000);
       }
+    }
+  };
+
+  const handleDeleteEmbeddings = async (studentId: string) => {
+    try {
+      setIsDeleting(true);
+      await deleteEmbeddings(studentId);
+      setDeleteConfirm(null);
+      setTrainMessage("Embeddings deleted successfully.");
+      setTimeout(() => setTrainMessage(""), 3000);
+    } catch (err) {
+      console.error(err);
+      setTrainMessage("Failed to delete embeddings.");
+      setTimeout(() => setTrainMessage(""), 3000);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -234,7 +252,7 @@ export const TrainModelTab: React.FC = () => {
         <h3 className="text-lg font-semibold text-gray-800 mb-4">
           Training Status
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           {students.map((student) => {
             const imgCount = getImageCountForStudent(student);
             const isTrained = imgCount > 0;
@@ -259,15 +277,46 @@ export const TrainModelTab: React.FC = () => {
                     </div>
                   </div>
                 </div>
-                <span
-                  className={`px-2 py-1 rounded text-xs font-bold ${
-                    isTrained
-                      ? "bg-green-100 text-green-700"
-                      : "bg-red-100 text-red-700"
-                  }`}
-                >
-                  {isTrained ? `${imgCount} Imgs` : "No Data"}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`px-2 py-1 rounded text-xs font-bold ${
+                      isTrained
+                        ? "bg-green-100 text-green-700"
+                        : "bg-red-100 text-red-700"
+                    }`}
+                  >
+                    {isTrained ? `${imgCount} Imgs` : "No Data"}
+                  </span>
+                  {isTrained && (
+                    <>
+                      {deleteConfirm === student.id ? (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleDeleteEmbeddings(student.id)}
+                            disabled={isDeleting}
+                            className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:opacity-50"
+                          >
+                            Yes
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirm(null)}
+                            className="px-2 py-1 bg-gray-400 text-white text-xs rounded hover:bg-gray-500"
+                          >
+                            No
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setDeleteConfirm(student.id)}
+                          className="p-1 text-red-600 hover:bg-red-100 rounded transition"
+                          title="Delete embeddings"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
             );
           })}

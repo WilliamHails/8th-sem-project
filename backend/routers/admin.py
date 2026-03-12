@@ -1,10 +1,11 @@
 # backend/routers/admin.py
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 import base64
 from sqlalchemy import func
+from uuid import UUID
 
 from ..deps import get_db
 from ..models import (
@@ -172,3 +173,124 @@ def enroll_subject(
         "user_id": str(user.id),
         "subject_id": str(subject.id),
     }
+
+
+# ============= UPDATE ENDPOINTS =============
+
+@router.put("/users/{user_id}", response_model=UserOut)
+def update_user(
+    user_id: str,
+    full_name: Optional[str] = Form(None),
+    email: Optional[str] = Form(None),
+    password: Optional[str] = Form(None),
+    role: Optional[str] = Form(None),
+    enrollment_no: Optional[str] = Form(None),
+    semester: Optional[int] = Form(None),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter_by(id=user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="user not found")
+
+    # Check if new email is already in use (by another user)
+    if email and email != user.email:
+        existing_email = db.query(User).filter(User.email == email).first()
+        if existing_email:
+            raise HTTPException(status_code=400, detail="email already exists")
+        user.email = email
+
+    # Check if new enrollment_no is already in use (by another user)
+    if enrollment_no and enrollment_no != user.enrollment_no:
+        if enrollment_no not in (None, "", "null"):
+            existing_enroll = db.query(User).filter(User.enrollment_no == enrollment_no).first()
+            if existing_enroll:
+                raise HTTPException(status_code=400, detail="enrollment_no already exists")
+        user.enrollment_no = enrollment_no
+
+    if full_name:
+        user.full_name = full_name
+    if password:
+        user.password_hash = hash_password(password)
+    if role:
+        user.role = role
+    if semester is not None:
+        user.semester = semester
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.put("/subjects/{subject_id}")
+def update_subject(
+    subject_id: str,
+    name: Optional[str] = Form(None),
+    code: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    subject = db.query(Subject).filter_by(id=subject_id).first()
+    if not subject:
+        raise HTTPException(status_code=404, detail="subject not found")
+
+    # Check if new code is already in use (by another subject)
+    if code and code != subject.code:
+        existing_code = db.query(Subject).filter(Subject.code == code).first()
+        if existing_code:
+            raise HTTPException(status_code=400, detail="subject code already exists")
+        subject.code = code
+
+    if name:
+        subject.name = name
+
+    db.commit()
+    db.refresh(subject)
+    return {"id": str(subject.id), "name": subject.name, "code": subject.code}
+
+
+# ============= DELETE ENDPOINTS =============
+
+@router.delete("/users/{user_id}")
+def delete_user(user_id: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter_by(id=user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="user not found")
+
+    # Delete related records
+    db.query(FaceEmbedding).filter_by(user_id=user_id).delete()
+    db.query(CourseEnrollment).filter_by(user_id=user_id).delete()
+
+    # Delete the user
+    db.delete(user)
+    db.commit()
+
+    return {"status": "deleted", "user_id": user_id}
+
+
+@router.delete("/subjects/{subject_id}")
+def delete_subject(subject_id: str, db: Session = Depends(get_db)):
+    subject = db.query(Subject).filter_by(id=subject_id).first()
+    if not subject:
+        raise HTTPException(status_code=404, detail="subject not found")
+
+    # Delete related enrollments
+    db.query(CourseEnrollment).filter_by(subject_id=subject_id).delete()
+
+    # Delete the subject
+    db.delete(subject)
+    db.commit()
+
+    return {"status": "deleted", "subject_id": subject_id}
+
+
+@router.delete("/face-embeddings/{user_id}")
+def delete_face_embeddings(user_id: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter_by(id=user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="user not found")
+
+    # Count and delete embeddings
+    count = db.query(FaceEmbedding).filter_by(user_id=user_id).count()
+    db.query(FaceEmbedding).filter_by(user_id=user_id).delete()
+    db.commit()
+
+    return {"status": "deleted", "user_id": user_id, "embeddings_deleted": count}
