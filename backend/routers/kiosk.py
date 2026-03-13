@@ -128,8 +128,11 @@ async def kiosk_mark_attendance_multicam(
     db: Session = Depends(get_db),
 ):
     """
-    Accepts up to N frames (e.g. 2 per webcam), runs face recognition on each, and
-    marks attendance based on the BEST MATCH among all frames.
+    Enhanced multi-camera endpoint that supports dual-camera mode.
+    - If frames from 2+ cameras: averages confidence scores per student across cameras
+    - If frames from 1 camera: uses best match (backward compatible)
+    
+    This enables 3D-like recognition using both built-in and external cameras.
     """
 
     # 1) Validate session
@@ -140,35 +143,61 @@ async def kiosk_mark_attendance_multicam(
     # 2) Load all students
     students = db.query(User).filter(User.role == RoleEnum.STUDENT).all()
 
-    best_global = None  # best match across ALL frames
+    # 3) OPTIMIZATION: Batch load all embeddings at once instead of N+1 queries
+    all_embeddings = db.query(FaceEmbedding).all()
+    embeddings_by_user: dict[str, list] = {}
+    for emb in all_embeddings:
+        if emb.user_id not in embeddings_by_user:
+            embeddings_by_user[emb.user_id] = []
+        embeddings_by_user[emb.user_id].append(emb)
 
-    for uploaded in files:
+    # 4) Process files and group by camera
+    camera_scores = {}  # {student_id: {camera_id: [scores]}}
+    best_per_camera = {}  # {camera_id: {student_id: best_score, name, enrollment_no}}
+    detected_cameras = set()
+    probe_b64_per_camera = {}  # Store one b64 per camera for saving later
+
+    for idx, uploaded in enumerate(files):
         content = await uploaded.read()
         if not content:
             continue
 
-        # convert to base64
-        b64_str = base64.b64encode(content).decode("utf-8")
+        # Estimate camera index from file naming (cam{N}_frame{M}.jpg)
+        filename = uploaded.filename or f"file_{idx}"
+        camera_id = 0  # default
+        if "cam" in filename.lower():
+            try:
+                parts = filename.lower().split("cam")
+                if len(parts) > 1:
+                    cam_num = parts[1].split("_")[0]
+                    camera_id = int(cam_num) - 1  # Convert from 1-indexed to 0-indexed
+            except:
+                camera_id = idx // 2  # Fallback: estimate from file order
+        
+        detected_cameras.add(camera_id)
 
-        # get embedding
+        # Convert to base64 and get embedding
+        b64_str = base64.b64encode(content).decode("utf-8")
         embedding, bbox = face_service.get_embedding_from_b64(b64_str)
+        
         if embedding is None:
-            # no face found in this frame
             continue
 
         probe_vec = np.array(embedding, dtype=np.float32)
 
-        best_for_frame = {
-            "student_id": None,
-            "score": -1.0,
-            "name": None,
-            "enrollment_no": None,
-            "b64": b64_str,
-        }
+        # Initialize camera score tracking if needed
+        if camera_id not in best_per_camera:
+            best_per_camera[camera_id] = {
+                "student_id": None,
+                "score": -1.0,
+                "name": None,
+                "enrollment_no": None,
+            }
+            probe_b64_per_camera[camera_id] = b64_str  # Store one b64 per camera
 
-        # 3) loop through all students, using FaceEmbedding table
+        # Find best match for this frame using pre-loaded embeddings
         for student in students:
-            embs = db.query(FaceEmbedding).filter_by(user_id=student.id).all()
+            embs = embeddings_by_user.get(student.id, [])
             if not embs:
                 continue
 
@@ -176,104 +205,163 @@ async def kiosk_mark_attendance_multicam(
             if mat.size == 0:
                 continue
 
-            # centroid of embeddings
             centroid = mat.mean(axis=0)
-
-            # normalize like in single-camera logic
             denom = np.linalg.norm(centroid)
             if denom == 0:
                 continue
-            centroid_norm = centroid / denom
 
-            # cosine similarity via dot product (probe assumed already normalized in your pipeline)
+            centroid_norm = centroid / denom
             similarity = float(np.dot(probe_vec, centroid_norm))
 
-            if similarity > best_for_frame["score"]:
-                best_for_frame.update(
-                    {
-                        "student_id": student.id,
-                        # use full_name & enrollment_no like first endpoint
-                        "name": getattr(student, "full_name", None) or getattr(student, "name", None),
-                        "enrollment_no": getattr(student, "enrollment_no", None),
-                        "score": similarity,
-                    }
-                )
+            # Update best for this camera if better
+            if similarity > best_per_camera[camera_id].get("score", -1.0):
+                best_per_camera[camera_id].update({
+                    "student_id": student.id,
+                    "score": similarity,
+                    "name": getattr(student, "full_name", None) or getattr(student, "name", None),
+                    "enrollment_no": getattr(student, "enrollment_no", None),
+                })
 
-        # 4) update global best if this frame is better
-        if best_for_frame["student_id"] and (
-            best_global is None or best_for_frame["score"] > best_global["score"]
-        ):
-            best_global = best_for_frame
-
-    # -------------------------------------------------------------------------
-    # DONE PROCESSING ALL FRAMES — NOW DECIDE BASED ON GLOBAL BEST
-    # -------------------------------------------------------------------------
-    if best_global is None:
+    # =========================================================================
+    # MULTI-CAMERA LOGIC: Average scores across cameras
+    # =========================================================================
+    num_cameras = len(detected_cameras)
+    
+    if num_cameras == 0:
         return {"status": "no_face", "message": "No face detected in any frame"}
 
-    student_id = best_global["student_id"]
-    score = best_global["score"]
-    name = best_global["name"]
-    enr = best_global["enrollment_no"]
+    best_student = None
+    best_avg_score = -1.0
+    best_info = None
+    final_score = -1.0  # Initialize explicitly to avoid NameError
 
-    student = db.query(User).filter_by(id=student_id).first()
+    if num_cameras >= 2:
+        # DUAL-CAMERA MODE: Average scores across cameras
+        print(f"[DEBUG] Processing {num_cameras} cameras with multi-camera averaging")
+        
+        student_scores = {}  # {student_id: [scores]}
+
+        # Collect scores for each student across cameras
+        for cam_id, cam_data in best_per_camera.items():
+            if cam_data["student_id"] and cam_data["score"] > -1.0:
+                sid = cam_data["student_id"]
+                if sid not in student_scores:
+                    student_scores[sid] = []
+                student_scores[sid].append(cam_data["score"])
+
+        # Compute average score per student
+        for sid, scores in student_scores.items():
+            if len(scores) > 0:
+                avg_score = float(np.mean(scores))
+                if avg_score > best_avg_score:
+                    best_avg_score = avg_score
+                    best_student = sid
+                    # Get student info from camera
+                    for cam_data in best_per_camera.values():
+                        if cam_data["student_id"] == sid:
+                            best_info = cam_data
+                            break
+
+        final_score = best_avg_score
+
+    else:
+        # SINGLE-CAMERA MODE: Use best match (backward compatible)
+        print(f"[DEBUG] Single camera mode - using best match logic")
+        
+        best_cam_data = list(best_per_camera.values())[0] if best_per_camera else None
+        if best_cam_data and best_cam_data["student_id"]:
+            best_student = best_cam_data["student_id"]
+            final_score = best_cam_data["score"]
+            best_info = best_cam_data
+
+    # =========================================================================
+    # CRITICAL: Check confidence threshold BEFORE making attendance decisions
+    # This prevents unrecognized faces from triggering "already marked" errors
+    # =========================================================================
+    if final_score < config.MATCH_SIMILARITY_THRESHOLD:
+        if best_student is not None:
+            return {
+                "status": "unresolved",
+                "message": f"Face confidence too low ({final_score:.3f} < {config.MATCH_SIMILARITY_THRESHOLD}). Please try again.",
+                "score": final_score,
+                "camera_count": num_cameras,
+            }
+        else:
+            return {
+                "status": "no_face",
+                "message": "No face detected or confidence too low. Please try again.",
+                "score": final_score,
+                "camera_count": num_cameras,
+            }
+
+    # =========================================================================
+    # DECISION MAKING (Only reached if threshold check passes)
+    # =========================================================================
+    if best_student is None:
+        return {"status": "no_face", "message": "No face detected or recognized in any frame"}
+
+    student = db.query(User).filter_by(id=best_student).first()
     if not student:
         return {"status": "unresolved", "message": "Could not determine student identity"}
 
-    # 5) Check enrollment (mirror single-camera endpoint)
+    name = best_info.get("name") if best_info else None
+    enr = best_info.get("enrollment_no") if best_info else None
+
+    # Check enrollment
     enrolled = (
         db.query(CourseEnrollment)
-        .filter_by(user_id=student_id, subject_id=session.subject_id)
+        .filter_by(user_id=best_student, subject_id=session.subject_id)
         .first()
     )
     if not enrolled:
         return {
             "status": "not_enrolled",
-            "student_id": str(student_id),
+            "student_id": str(best_student),
             "name": name,
             "enrollment_no": enr,
-            "score": score,
+            "score": final_score,
+            "camera_count": num_cameras,
         }
 
-    # 6) Check if already marked (mirror fields from single-camera endpoint)
+    # Check if already marked
     existing = (
         db.query(AttendanceRecord)
-        .filter_by(session_id=session_id, student_id=student_id)
+        .filter_by(session_id=session_id, student_id=best_student)
         .first()
     )
     if existing:
         return {
             "status": "already_marked",
-            "student_id": str(student_id),
+            "student_id": str(best_student),
             "name": name,
             "enrollment_no": enr,
-            "score": score,
+            "score": final_score,
+            "camera_count": num_cameras,
         }
 
-    # 7) Similarity threshold
-    if score < config.MATCH_SIMILARITY_THRESHOLD:
-        return {
-            "status": "unresolved",
-            "student_id": str(student_id),
-            "name": name,
-            "enrollment_no": enr,
-            "score": score,
-        }
-
-    # -------------------------------------------------------------------------
-    # 8) MARK ATTENDANCE
-    #    (align this with your AttendanceRecord model fields!)
-    # -------------------------------------------------------------------------
+    # =========================================================================
+    # MARK ATTENDANCE
+    # =========================================================================
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
     probe_path = config.PROBES_DIR / f"{session_id}_{ts}.jpg"
-    # save the best probe as image file, if you wish to keep parity with single-camera
-    face_service.save_probe_image_from_b64(best_global["b64"], probe_path)
+    
+    # Save probe image from best camera
+    if best_per_camera and best_info:
+        for cam_id, cam_data in best_per_camera.items():
+            if cam_data["student_id"] == best_student:
+                # Found the camera that matched this student
+                if cam_id in probe_b64_per_camera:
+                    try:
+                        face_service.save_probe_image_from_b64(probe_b64_per_camera[cam_id], probe_path)
+                    except Exception as e:
+                        print(f"[WARNING] Could not save probe image: {e}")
+                break
 
     record = AttendanceRecord(
         session_id=session_id,
-        student_id=student_id,
+        student_id=best_student,
         status="PRESENT",
-        confidence=str(score),
+        confidence=str(final_score),
         image_path=str(probe_path),
     )
     db.add(record)
@@ -281,8 +369,9 @@ async def kiosk_mark_attendance_multicam(
 
     return {
         "status": "matched",
-        "student_id": str(student_id),
+        "student_id": str(best_student),
         "name": name,
         "enrollment_no": enr,
-        "score": score,
+        "score": final_score,
+        "camera_count": num_cameras,
     }
