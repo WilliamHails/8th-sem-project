@@ -25,6 +25,7 @@ const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ onNavigate }) => {
 		startSession,
 		endSession,
 		users,
+		subscribeToAttendance,
 	} = useApp();
 
 	const [selectedSubject, setSelectedSubject] = useState("");
@@ -116,6 +117,35 @@ const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ onNavigate }) => {
 			setPresentStudentsForActive([]);
 		}
 	}, [attendanceRecords, activeSession, users]);
+
+	// ========== Real-time SSE Subscription ==========
+	useEffect(() => {
+		// Only subscribe if we have an active session with a valid ID
+		if (!activeSession?.id) {
+
+			return;
+		}
+
+		let controller: AbortController | null = null;
+		
+		try {
+			controller = subscribeToAttendance(activeSession.id);
+		} catch (err) {
+			console.error("[Faculty Dashboard] Failed to subscribe to real-time updates:", err);
+			// Component still works, just without real-time updates
+		}
+
+		// Cleanup function: close SSE connection when session ends or component unmounts
+		return () => {
+			if (controller) {
+				try {
+					controller.abort();
+				} catch (err) {
+					console.error("[Faculty Dashboard] Error during cleanup:", err);
+				}
+			}
+		};
+	}, [activeSession?.id]);
 
 	const handleStartSession = async () => {
 		if (!selectedSubject || !startTime || !endTime) return;
@@ -403,7 +433,7 @@ const FacultyDashboard: React.FC<FacultyDashboardProps> = ({ onNavigate }) => {
 						Recent Sessions History
 					</h3>
 				</div>
-				<div className="overflow-x-auto">
+				<div className="overflow-x-auto max-h-96 overflow-y-auto">
 					<table className="min-w-full text-sm text-left">
 						<thead className="bg-gray-50 text-gray-600 font-medium">
 							<tr>

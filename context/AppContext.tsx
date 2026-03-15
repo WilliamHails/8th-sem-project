@@ -32,6 +32,8 @@ interface AppContextType {
 		endTime: string
 	) => ClassSession;
 	endSession: (sessionId: string) => void;
+	deleteSession: (sessionId: string) => Promise<boolean>;
+	deleteAllSessions: () => Promise<boolean>;
 	markAttendance: (
 		imageDataUrlOrBase64: string,
 		sessionId: string
@@ -46,6 +48,7 @@ interface AppContextType {
 	deleteUser: (userId: string) => Promise<void>;
 	deleteSubject: (subjectId: string) => Promise<void>;
 	deleteEmbeddings: (userId: string) => Promise<void>;
+	subscribeToAttendance: (sessionId: string) => AbortController | null;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -485,6 +488,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
 		}
 	};
 
+	const deleteSession = async (sessionId: string) => {
+		try {
+			await api.delete(`/api/sessions/${sessionId}`);
+			await fetchAllSessions();
+			return true;
+		} catch (err) {
+			console.error("deleteSession failed", err);
+			throw err;
+		}
+	};
+
+	const deleteAllSessions = async () => {
+		try {
+			await api.delete(`/api/sessions`);
+			await fetchAllSessions();
+			return true;
+		} catch (err) {
+			console.error("deleteAllSessions failed", err);
+			throw err;
+		}
+	};
+
 	// ---------- KIOSK ----------
 	// markAttendance expects sessionId + base64 image (without data: prefix)
 	const markAttendance = async (
@@ -553,6 +578,68 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
 		return res.data;
 	};
 
+	// ---------- Real-time SSE Subscription ----------
+	const subscribeToAttendance = (sessionId: string): AbortController | null => {
+		if (typeof window === "undefined") return null; // SSR check
+		if (!sessionId) {
+			console.warn("[Attendance Stream] Cannot subscribe with empty sessionId");
+			return null;
+		}
+
+		const controller = new AbortController();
+		const apiUrl = api.defaults.baseURL || "http://localhost:8000";
+		
+		try {
+			const eventSourceUrl = `${apiUrl}/api/attendance/stream/${sessionId}`;
+			const eventSource = new EventSource(eventSourceUrl);
+
+			eventSource.onmessage = (event) => {
+				try {
+					const data = JSON.parse(event.data);
+					
+					// Skip the "connected" event, only process actual attendance records
+					if (data.type === "connected") {
+						return;
+					}
+
+					// Normalize backend snake_case to frontend camelCase
+					const normalizedData = {
+						id: data.id,
+						sessionId: data.session_id,  // Backend sends session_id
+						studentId: data.student_id,  // Backend sends student_id
+						timestamp: data.timestamp,
+						status: data.status,
+						confidence: data.confidence,
+						name: data.name,
+						enrollmentNo: data.enrollment_no,  // Backend sends enrollment_no
+					};
+
+					// Add new attendance record to state
+					setAttendanceRecords((prev) => {
+						const updated = [...prev, normalizedData];
+						return updated;
+					});
+				} catch (err) {
+					console.error("[Attendance Stream] Parse error:", err);
+				}
+			};
+
+			eventSource.onerror = (err) => {
+				// EventSource automatically attempts to reconnect
+			};
+
+			// Return controller for manual cleanup
+			controller.signal.addEventListener("abort", () => {
+				eventSource.close();
+			});
+
+			return controller;
+		} catch (err) {
+			console.error("[Attendance Stream] Failed to create EventSource:", err);
+			return null;
+		}
+	};
+
 	// ---------- return context ----------
 	return (
 		<AppContext.Provider
@@ -568,6 +655,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
 				logout,
 				startSession,
 				endSession,
+				deleteSession,
+				deleteAllSessions,
 				markAttendance,
 				trainModel,
 				getActiveSession: (facultyId?: string) => {
@@ -594,6 +683,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
 				deleteUser,
 				deleteSubject,
 				deleteEmbeddings,
+				subscribeToAttendance,
 			}}
 		>
 			{children}

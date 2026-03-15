@@ -1,10 +1,11 @@
 import React, { useState } from "react";
-import { Database, Users, BookOpen } from "lucide-react";
+import { Database, Users, BookOpen, History } from "lucide-react";
 import { TrainModelTab } from "../components/TrainModelTab";
 import { ManageUsersTab } from "../components/ManageUsersTab";
 import { SubjectsTab } from "../components/SubjectsTab";
+import { ManageSessionHistoryTab } from "../components/ManageSessionHistoryTab";
 
-type AdminTab = "train" | "users" | "subjects";
+type AdminTab = "train" | "users" | "subjects" | "sessions";
 
 const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AdminTab>("train");
@@ -53,12 +54,25 @@ const AdminDashboard: React.FC = () => {
             <BookOpen size={16} className="mr-2" /> Manage Subjects
           </div>
         </button>
+        <button
+          onClick={() => setActiveTab("sessions")}
+          className={`px-4 py-2 font-medium text-sm rounded-t-lg transition-colors whitespace-nowrap ${
+            activeTab === "sessions"
+              ? "bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600"
+              : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          <div className="flex items-center">
+            <History size={16} className="mr-2" /> Manage Session History
+          </div>
+        </button>
       </div>
 
       <div className="w-full">
         {activeTab === "train" && <TrainModelTab />}
         {activeTab === "users" && <ManageUsersTab />}
         {activeTab === "subjects" && <SubjectsTab />}
+        {activeTab === "sessions" && <ManageSessionHistoryTab />}
       </div>
     </div>
   );

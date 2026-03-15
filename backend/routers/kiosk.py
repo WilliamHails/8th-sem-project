@@ -6,6 +6,7 @@ from typing import List
 from datetime import datetime
 import base64
 import numpy as np
+import asyncio
 
 from ..deps import get_db
 from ..models import (
@@ -17,6 +18,7 @@ from ..models import (
     CourseEnrollment,
 )
 from .. import face_service, config
+from .attendance import broadcast_attendance_record
 
 router = APIRouter(prefix="/api/kiosk", tags=["kiosk"])
 
@@ -107,6 +109,29 @@ async def kiosk_mark_attendance(
         )
         db.add(att)
         db.commit()
+        
+        # Broadcast this attendance record to all connected faculty dashboard clients
+        attendance_payload = {
+            "id": str(att.id),
+            "session_id": str(session_id),
+            "student_id": str(best["student_id"]),
+            "timestamp": att.timestamp.isoformat(),
+            "status": "PRESENT",
+            "confidence": str(best["score"]),
+            "name": best["name"],
+            "enrollment_no": best.get("enrollment_no"),
+        }
+        
+        # Run broadcast in background (non-blocking)
+        print(f"[KIOSK] Attendance marked for {best['name']}, broadcasting to session {session_id}")
+        try:
+            asyncio.create_task(broadcast_attendance_record(session_id, attendance_payload))
+            print(f"[KIOSK] Broadcast task created for session {session_id}")
+        except RuntimeError as e:
+            # If no event loop, try to run it synchronously (shouldn't happen in async context)
+            print(f"[KIOSK] Error creating broadcast task: {e}")
+            pass
+        
         return {
             "status": "matched",
             "student_id": str(best["student_id"]),
@@ -366,6 +391,28 @@ async def kiosk_mark_attendance_multicam(
     )
     db.add(record)
     db.commit()
+
+    # Broadcast this attendance record to all connected faculty dashboard clients
+    attendance_payload = {
+        "id": str(record.id),
+        "session_id": str(session_id),
+        "student_id": str(best_student),
+        "timestamp": record.timestamp.isoformat(),
+        "status": "PRESENT",
+        "confidence": str(final_score),
+        "name": name,
+        "enrollment_no": enr,
+    }
+    
+    # Run broadcast in background (non-blocking)
+    print(f"[KIOSK] Attendance marked for {name}, broadcasting to session {session_id}")
+    try:
+        asyncio.create_task(broadcast_attendance_record(session_id, attendance_payload))
+        print(f"[KIOSK] Broadcast task created for session {session_id}")
+    except RuntimeError as e:
+        # If no event loop, try to run it synchronously (shouldn't happen in async context)
+        print(f"[KIOSK] Error creating broadcast task: {e}")
+        pass
 
     return {
         "status": "matched",

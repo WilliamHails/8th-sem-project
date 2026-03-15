@@ -135,3 +135,26 @@ def list_sessions(db: Session = Depends(get_db)):
 
     return result
 
+
+@router.delete("/{session_id}")
+def delete_session(session_id: str, db: Session = Depends(get_db)):
+    """Delete a single session and its related attendance records"""
+    cs = db.query(ClassSession).filter_by(id=session_id).first()
+    if not cs:
+        raise HTTPException(status_code=404, detail="session not found")
+    
+    # Delete the session
+    db.delete(cs)
+    db.commit()
+    return {"ok": True, "message": f"Session {session_id} deleted"}
+
+
+@router.delete("")
+def delete_all_sessions(db: Session = Depends(get_db)):
+    """Delete all sessions and attendance records"""
+    # Delete all sessions
+    db.query(ClassSession).delete()
+    db.commit()
+    return {"ok": True, "message": "All sessions deleted"}
+
+
